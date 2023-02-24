@@ -10,10 +10,11 @@ fn main() {
         max_velocity: 3.,
     };
     let start_conditions = SCurveStartConditions {
-        q0: 0.,
-        q1: 10.,
-        v0: 0.,
-        v1: 0.,
+        _q0: 0.,
+        _q1: 10.,
+        _v0: 0.,
+        _v1: 0.,
+        dir: true,
     };
     let input = SCurveInput {
         constraints,

@@ -81,22 +81,25 @@ impl SCurveTimeIntervals {
 #[derive(Clone, Debug)]
 pub struct SCurveStartConditions {
     /// start position
-    pub q0: f64,
+    pub _q0: f64,
     /// end position
-    pub q1: f64,
+    pub _q1: f64,
     ///start velocity
-    pub v0: f64,
+    pub _v0: f64,
     ///end velocity
-    pub v1: f64,
+    pub _v1: f64,
+
+    pub dir: bool,
 }
 
 impl Default for SCurveStartConditions {
     fn default() -> Self {
         SCurveStartConditions {
-            q0: 0.,
-            q1: 1.,
-            v0: 0.,
-            v1: 0.,
+            _q0: 0.,
+            _q1: 1.,
+            _v0: 0.,
+            _v1: 0.,
+            dir: true,
         }
     }
 }
@@ -104,15 +107,23 @@ impl Default for SCurveStartConditions {
 impl SCurveStartConditions {
     /// displacement
     fn h(&self) -> f64 {
-        f64::abs(self.q1 - self.q0)
+        f64::abs(self._q1 - self._q0)
     }
-    /// direction
-    fn dir(&self) -> f64 {
-        if self.q1 < self.q0 {
-            -1.0
-        } else {
-            1.0
-        }
+
+    fn q0(&self) -> f64 {
+        if self.dir {self._q0} else {self._q1}
+    }
+
+    fn q1(&self) -> f64 {
+        if self.dir {self._q1} else {self._q0}
+    }
+
+    fn v0(&self) -> f64 {
+        if self.dir {self._v0} else {-self._v1}
+    }
+
+    fn v1(&self) -> f64 {
+        if self.dir {self._v1} else {-self._v0}
     }
 }
 
@@ -140,7 +151,7 @@ impl SCurveParameters {
         let a_lim_a = p.constraints.max_jerk * times.t_j1;
         let a_lim_d = -p.constraints.max_jerk * times.t_j2;
         let v_lim =
-            p.start_conditions.dir() * p.start_conditions.v0 + (times.t_a - times.t_j1) * a_lim_a;
+            p.start_conditions.v0() + (times.t_a - times.t_j1) * a_lim_a;
         SCurveParameters {
             time_intervals: times.clone(),
             j_max: p.constraints.max_jerk,
@@ -170,7 +181,7 @@ impl SCurveInput {
     pub fn is_trajectory_feasible(&self) -> bool {
         let t_j_star: f64 = f64::min(
             f64::sqrt(
-                f64::abs(self.start_conditions.v1 - self.start_conditions.v0)
+                f64::abs(self.start_conditions.v1() - self.start_conditions.v0())
                     / self.constraints.max_jerk,
             ),
             self.constraints.max_acceleration / self.constraints.max_jerk,
@@ -179,61 +190,61 @@ impl SCurveInput {
         {
             return self.start_conditions.h()
                 > 0.5
-                    * (self.start_conditions.v1 + self.start_conditions.v0)
+                    * (self.start_conditions.v1() + self.start_conditions.v0())
                     * (t_j_star
-                        + f64::abs(self.start_conditions.v1 - self.start_conditions.v0)
+                        + f64::abs(self.start_conditions.v1() - self.start_conditions.v0())
                             / self.constraints.max_acceleration);
         }
         if t_j_star < self.constraints.max_acceleration / self.constraints.max_jerk {
             return self.start_conditions.h()
-                > t_j_star * (self.start_conditions.v0 + self.start_conditions.v1);
+                > t_j_star * (self.start_conditions.v0() + self.start_conditions.v1());
         }
         false
     }
     fn is_a_max_not_reached(&self) -> bool {
-        (self.constraints.max_velocity - self.start_conditions.v0) * self.constraints.max_jerk
+        (self.constraints.max_velocity - self.start_conditions.v0()) * self.constraints.max_jerk
             < self.constraints.max_acceleration.powi(2)
     }
     fn is_a_min_not_reached(&self) -> bool {
-        (self.constraints.max_velocity - self.start_conditions.v1) * self.constraints.max_jerk
+        (self.constraints.max_velocity - self.start_conditions.v1()) * self.constraints.max_jerk
             < self.constraints.max_acceleration.powi(2)
     }
 
     fn calc_times_case_1(&self) -> SCurveTimeIntervals {
         let mut times = SCurveTimeIntervals::default();
         let mut new_input = self.clone();
-        let dir = self.start_conditions.dir();
+        let dir = 1.;
         if self.is_a_max_not_reached() {
             times.t_j1 = f64::sqrt(
-                (new_input.constraints.max_velocity - self.start_conditions.v0)
+                (new_input.constraints.max_velocity - self.start_conditions.v0())
                     / new_input.constraints.max_jerk,
             );
             times.t_a = 2. * times.t_j1;
         } else {
             times.t_j1 = new_input.constraints.max_acceleration / new_input.constraints.max_jerk;
             times.t_a = times.t_j1
-                + (new_input.constraints.max_velocity - dir * self.start_conditions.v0)
+                + (new_input.constraints.max_velocity - dir * self.start_conditions.v0())
                     / new_input.constraints.max_acceleration;
         }
 
         if self.is_a_min_not_reached() {
             times.t_j2 = f64::sqrt(
-                (new_input.constraints.max_velocity - self.start_conditions.v1)
+                (new_input.constraints.max_velocity - self.start_conditions.v1())
                     / new_input.constraints.max_jerk,
             );
             times.t_d = 2. * times.t_j2;
         } else {
             times.t_j2 = new_input.constraints.max_acceleration / new_input.constraints.max_jerk;
             times.t_d = times.t_j2
-                + (new_input.constraints.max_velocity - dir * self.start_conditions.v1)
+                + (new_input.constraints.max_velocity - dir * self.start_conditions.v1())
                     / new_input.constraints.max_acceleration;
         }
 
         times.t_v = self.start_conditions.h() / new_input.constraints.max_velocity
             - times.t_a / 2.
-                * (1. + dir * self.start_conditions.v0 / new_input.constraints.max_velocity)
+                * (1. + dir * self.start_conditions.v0() / new_input.constraints.max_velocity)
             - times.t_d / 2.
-                * (1. + dir * self.start_conditions.v1 / new_input.constraints.max_velocity);
+                * (1. + dir * self.start_conditions.v1() / new_input.constraints.max_velocity);
         if times.t_v <= 0. {
             return self.calc_times_case_2(0);
         }
@@ -270,17 +281,17 @@ impl SCurveInput {
         let t_j1 = self.constraints.max_acceleration / self.constraints.max_jerk;
         let t_j2 = self.constraints.max_acceleration / self.constraints.max_jerk;
         let delta = self.constraints.max_acceleration.powi(4) / self.constraints.max_jerk.powi(2)
-            + 2. * (self.start_conditions.v0.powi(2) + self.start_conditions.v1.powi(2))
+            + 2. * (self.start_conditions.v0().powi(2) + self.start_conditions.v1().powi(2))
             + self.constraints.max_acceleration
                 * (4. * self.start_conditions.h()
                     - 2. * self.constraints.max_acceleration / self.constraints.max_jerk
-                        * (self.start_conditions.v0 + self.start_conditions.v1));
+                        * (self.start_conditions.v0() + self.start_conditions.v1()));
         let t_a = (self.constraints.max_acceleration.powi(2) / self.constraints.max_jerk
-            - 2. * self.start_conditions.v0
+            - 2. * self.start_conditions.v0()
             + f64::sqrt(delta))
             / (2. * self.constraints.max_acceleration);
         let t_d = (self.constraints.max_acceleration.powi(2) / self.constraints.max_jerk
-            - 2. * self.start_conditions.v1
+            - 2. * self.start_conditions.v1()
             + f64::sqrt(delta))
             / (2. * self.constraints.max_acceleration);
         let t_v = 0.;
@@ -316,85 +327,87 @@ impl SCurveInput {
             times.t_j1 = 0.;
             times.t_a = 0.;
             times.t_d = 2. * self.start_conditions.h()
-                / (self.start_conditions.v0 + self.start_conditions.v1);
+                / (self.start_conditions.v0() + self.start_conditions.v1());
             times.t_j2 = (new_input.constraints.max_jerk * self.start_conditions.h()
                 - f64::sqrt(
                     new_input.constraints.max_jerk
                         * (new_input.constraints.max_jerk * self.start_conditions.h().powi(2)
-                            + (self.start_conditions.v0 + self.start_conditions.v1).powi(2)
-                                * (self.start_conditions.v1 - self.start_conditions.v0)),
+                            + (self.start_conditions.v0() + self.start_conditions.v1()).powi(2)
+                                * (self.start_conditions.v1() - self.start_conditions.v0())),
                 ))
                 / (new_input.constraints.max_jerk
-                    * (self.start_conditions.v1 + self.start_conditions.v0));
+                    * (self.start_conditions.v1() + self.start_conditions.v0()));
         }
         if times.t_d < 0. {
-            times.t_j2 = 0.;
+            times.t_j1 = 0.;
             times.t_d = 0.;
             times.t_a = 2. * self.start_conditions.h()
-                / (self.start_conditions.v0 + self.start_conditions.v1);
+                / (self.start_conditions.v0() + self.start_conditions.v1());
             times.t_j2 = (new_input.constraints.max_jerk * self.start_conditions.h()
                 - f64::sqrt(
                     new_input.constraints.max_jerk
                         * (new_input.constraints.max_jerk * self.start_conditions.h().powi(2)
-                            - (self.start_conditions.v0 + self.start_conditions.v1).powi(2)
-                                * (self.start_conditions.v1 - self.start_conditions.v0)),
+                            - (self.start_conditions.v0() + self.start_conditions.v1()).powi(2)
+                                * (self.start_conditions.v1() - self.start_conditions.v0())),
                 ))
                 / (new_input.constraints.max_jerk
-                    * (self.start_conditions.v1 + self.start_conditions.v0));
+                    * (self.start_conditions.v1() + self.start_conditions.v0()));
         }
     }
 }
 
 fn eval_position(p: &SCurveParameters, t: f64) -> f64 {
     let times = &p.time_intervals;
+    let t = if p.conditions.dir {t} else {times.total_duration() - t};
     if t < 0. {
-        return p.conditions.q0;
+        return p.conditions.q0();
     }
-    let dir = p.conditions.dir();
+    let dir = 1.;
     if t <= times.t_j1 {
-        p.conditions.q0 + p.conditions.v0 * t + dir * p.j_max * t.powi(3) / 6.
+        p.conditions.q0() + p.conditions.v0() * t + dir * p.j_max * t.powi(3) / 6.
     } else if t <= times.t_a - times.t_j1 {
-        p.conditions.q0
-            + p.conditions.v0 * t
+        p.conditions.q0()
+            + p.conditions.v0() * t
             + dir * p.a_lim_a / 6. * (3. * t.powi(2) - 3. * times.t_j1 * t + times.t_j1.powi(2))
     } else if t <= times.t_a {
-        p.conditions.q0 + dir * (p.v_lim + dir * p.conditions.v0) * times.t_a / 2.
+        p.conditions.q0() + dir * (p.v_lim + dir * p.conditions.v0()) * times.t_a / 2.
             - dir * p.v_lim * (times.t_a - t)
             - dir * p.j_min * (times.t_a - t).powi(3) / 6.
     } else if t <= times.t_a + times.t_v {
-        p.conditions.q0
-            + dir * (p.v_lim + dir * p.conditions.v0) * times.t_a / 2.
+        p.conditions.q0()
+            + dir * (p.v_lim + dir * p.conditions.v0()) * times.t_a / 2.
             + dir * p.v_lim * (t - times.t_a)
     } else if t <= times.total_duration() - times.t_d + times.t_j2 {
-        p.conditions.q1 - dir * (p.v_lim + dir * p.conditions.v1) * times.t_d / 2.
+        p.conditions.q1() - dir * (p.v_lim + dir * p.conditions.v1()) * times.t_d / 2.
             + dir * p.v_lim * (t - times.total_duration() + times.t_d)
             - dir * p.j_max * (t - times.total_duration() + times.t_d).powi(3) / 6.
     } else if t <= times.total_duration() - times.t_j2 {
-        p.conditions.q1 - dir * (p.v_lim + dir * p.conditions.v1) * times.t_d / 2.
+        p.conditions.q1() - dir * (p.v_lim + dir * p.conditions.v1()) * times.t_d / 2.
             + dir * p.v_lim * (t - times.total_duration() + times.t_d)
             + dir * p.a_lim_d / 6.
                 * (3. * (t - times.total_duration() + times.t_d).powi(2)
                     - 3. * times.t_j2 * (t - times.total_duration() + times.t_d)
                     + times.t_j2.powi(2))
     } else if t <= times.total_duration() {
-        p.conditions.q1
-            - p.conditions.v1 * (times.total_duration() - t)
+        p.conditions.q1()
+            - p.conditions.v1() * (times.total_duration() - t)
             - dir * p.j_max * (times.total_duration() - t).powi(3) / 6.
     } else {
-        p.conditions.q1
+        p.conditions.q1()
     }
 }
 
 fn eval_velocity(p: &SCurveParameters, t: f64) -> f64 {
     let times = &p.time_intervals;
+    let t = if p.conditions.dir {t} else {times.total_duration() - t};
     if t < 0. {
-        return p.conditions.v0;
+        return p.conditions.v0();
     }
-    let dir = p.conditions.dir();
+    let dir = 1.;
     if t <= times.t_j1 {
-        p.conditions.v0 + dir * p.j_max * t.powi(2) / 2.
+        p.conditions.v0() + dir * p.j_max * t.powi(2) / 2.
     } else if t <= times.t_a - times.t_j1 {
-        p.conditions.v0 + dir * p.a_lim_a * (t - times.t_j1 / 2.)
+        p.conditions.v0() + dir * p.a_lim_a * (t - times.t_j1 / 2.)
     } else if t <= times.t_a {
         dir * p.v_lim + dir * p.j_min * (times.t_a - t).powi(2) / 2.
     } else if t <= times.t_a + times.t_v {
@@ -404,15 +417,16 @@ fn eval_velocity(p: &SCurveParameters, t: f64) -> f64 {
     } else if t <= times.total_duration() - times.t_j2 {
         dir * p.v_lim + dir * p.a_lim_d * (t - times.total_duration() + times.t_d - times.t_j2 / 2.)
     } else if t <= times.total_duration() {
-        p.conditions.v1 + dir * p.j_max * (times.total_duration() - t).powi(2) / 2.
+        p.conditions.v1() + dir * p.j_max * (times.total_duration() - t).powi(2) / 2.
     } else {
-        p.conditions.v1
+        p.conditions.v1()
     }
 }
 
 fn eval_acceleration(p: &SCurveParameters, t: f64) -> f64 {
     let times = &p.time_intervals;
-    let dir = p.conditions.dir();
+    let t = if p.conditions.dir {t} else {times.total_duration() - t};
+    let dir = 1.;
     if t < 0. {
         0.
     } else if t <= times.t_j1 {
@@ -420,15 +434,15 @@ fn eval_acceleration(p: &SCurveParameters, t: f64) -> f64 {
     } else if t <= times.t_a - times.t_j1 {
         dir * p.a_lim_a
     } else if t <= times.t_a {
-        dir * (-p.j_min) * (times.t_a - t)
+        dir * (p.j_max) * (times.t_a - t)
     } else if t <= times.t_a + times.t_v {
         0.
     } else if t <= times.total_duration() - times.t_d + times.t_j2 {
-        dir * (-p.j_max) * (t - times.total_duration() + times.t_d)
+        dir * (p.j_min) * (t - times.total_duration() + times.t_d)
     } else if t <= times.total_duration() - times.t_j2 {
         dir * p.a_lim_d
     } else if t <= times.total_duration() {
-        dir * (-p.j_max) * (times.total_duration() - t)
+        dir * (p.j_min) * (times.total_duration() - t)
     } else {
         0.
     }
@@ -436,7 +450,8 @@ fn eval_acceleration(p: &SCurveParameters, t: f64) -> f64 {
 
 fn eval_jerk(p: &SCurveParameters, t: f64) -> f64 {
     let times = &p.time_intervals;
-    let dir = p.conditions.dir();
+    let t = if p.conditions.dir {t} else {times.total_duration() - t};
+    let dir = 1.;
     if t < times.t_j1 {
         dir * p.j_max
     } else if t <= times.t_a - times.t_j1 {
@@ -537,10 +552,11 @@ mod tests {
             max_velocity: 5.,
         };
         let start_conditions = SCurveStartConditions {
-            q0: 0.,
-            q1: 10.,
-            v0: 1.,
-            v1: 0.,
+            _q0: 0.,
+            _q1: 10.,
+            _v0: 1.,
+            _v1: 0.,
+            dir: true
         };
         let input = SCurveInput {
             constraints,
@@ -563,10 +579,11 @@ mod tests {
             max_velocity: 10.,
         };
         let start_conditions = SCurveStartConditions {
-            q0: 0.,
-            q1: 10.,
-            v0: 1.,
-            v1: 0.,
+            _q0: 0.,
+            _q1: 10.,
+            _v0: 1.,
+            _v1: 0.,
+            dir: true
         };
         let input = SCurveInput {
             constraints,
@@ -589,10 +606,11 @@ mod tests {
             max_velocity: 10.,
         };
         let start_conditions = SCurveStartConditions {
-            q0: 0.,
-            q1: 10.,
-            v0: 7.,
-            v1: 0.,
+            _q0: 0.,
+            _q1: 10.,
+            _v0: 7.,
+            _v1: 0.,
+            dir: true
         };
         let input = SCurveInput {
             constraints,
@@ -615,10 +633,11 @@ mod tests {
             max_velocity: 10.,
         };
         let start_conditions = SCurveStartConditions {
-            q0: 0.,
-            q1: 10.,
-            v0: 7.5,
-            v1: 0.,
+            _q0: 0.,
+            _q1: 10.,
+            _v0: 7.5,
+            _v1: 0.,
+            dir: true
         };
         let input = SCurveInput {
             constraints,
@@ -641,10 +660,11 @@ mod tests {
             max_velocity: 5.,
         };
         let start_conditions = SCurveStartConditions {
-            q0: 0.,
-            q1: 10.,
-            v0: 1.,
-            v1: 0.,
+            _q0: 0.,
+            _q1: 10.,
+            _v0: 1.,
+            _v1: 0.,
+            dir: true
         };
         let input = SCurveInput {
             constraints,
@@ -669,10 +689,11 @@ mod tests {
             max_velocity: 3.,
         };
         let start_conditions = SCurveStartConditions {
-            q0: 10.,
-            q1: 0.,
-            v0: 0.,
-            v1: 0.,
+            _q0: 10.,
+            _q1: 0.,
+            _v0: 0.,
+            _v1: 0.,
+            dir: false
         };
         let input = SCurveInput {
             constraints,
@@ -691,10 +712,11 @@ mod tests {
             max_velocity: 3.,
         };
         let start_conditions = SCurveStartConditions {
-            q0: 5.,
-            q1: 0.,
-            v0: 0.,
-            v1: 0.,
+            _q0: 5.,
+            _q1: 0.,
+            _v0: 0.,
+            _v1: 0.,
+            dir: false
         };
         let input = SCurveInput {
             constraints,
@@ -713,10 +735,11 @@ mod tests {
             max_velocity: 3.,
         };
         let start_conditions = SCurveStartConditions {
-            q0: 10.,
-            q1: 0.,
-            v0: 0.,
-            v1: 0.,
+            _q0: 10.,
+            _q1: 0.,
+            _v0: 0.,
+            _v1: 0.,
+            dir: false
         };
         let input = SCurveInput {
             constraints,
@@ -734,10 +757,11 @@ mod tests {
             max_velocity: 3.,
         };
         let start_conditions = SCurveStartConditions {
-            q0: 1.,
-            q1: 0.,
-            v0: 0.,
-            v1: 0.,
+            _q0: 1.,
+            _q1: 0.,
+            _v0: 0.,
+            _v1: 0.,
+            dir: false
         };
         let input = SCurveInput {
             constraints,
@@ -755,10 +779,11 @@ mod tests {
             max_velocity: 3.,
         };
         let start_conditions = SCurveStartConditions {
-            q0: 0.,
-            q1: 10.,
-            v0: 1.,
-            v1: 0.,
+            _q0: 0.,
+            _q1: 10.,
+            _v0: 1.,
+            _v1: 0.,
+            dir: true
         };
         let input = SCurveInput {
             constraints,
@@ -778,10 +803,11 @@ mod tests {
             max_velocity: 3.,
         };
         let start_conditions = SCurveStartConditions {
-            q0: 0.,
-            q1: 10.,
-            v0: -1.,
-            v1: 0.,
+            _q0: 0.,
+            _q1: 10.,
+            _v0: -1.,
+            _v1: 0.,
+            dir: true
         };
         let input = SCurveInput {
             constraints,
@@ -801,10 +827,11 @@ mod tests {
             max_velocity: 3.,
         };
         let start_conditions = SCurveStartConditions {
-            q0: 10.,
-            q1: 0.,
-            v0: -1.,
-            v1: 0.,
+            _q0: 10.,
+            _q1: 0.,
+            _v0: -1.,
+            _v1: 0.,
+            dir: false
         };
         let input = SCurveInput {
             constraints,
@@ -824,10 +851,11 @@ mod tests {
             max_velocity: 3.,
         };
         let start_conditions = SCurveStartConditions {
-            q0: 10.,
-            q1: 0.,
-            v0: 1.,
-            v1: 0.,
+            _q0: 10.,
+            _q1: 0.,
+            _v0: 1.,
+            _v1: 0.,
+            dir: false
         };
         let input = SCurveInput {
             constraints,
@@ -847,10 +875,11 @@ mod tests {
             max_velocity: 3.,
         };
         let start_conditions = SCurveStartConditions {
-            q0: 0.,
-            q1: 10.,
-            v0: -1.,
-            v1: 0.,
+            _q0: 0.,
+            _q1: 10.,
+            _v0: -1.,
+            _v1: 0.,
+            dir: true
         };
         let input = SCurveInput {
             constraints,
@@ -869,10 +898,11 @@ mod tests {
             max_velocity: 3.,
         };
         let start_conditions = SCurveStartConditions {
-            q0: 10.,
-            q1: 0.,
-            v0: 1.,
-            v1: 0.,
+            _q0: 10.,
+            _q1: 0.,
+            _v0: 1.,
+            _v1: 0.,
+            dir: false
         };
         let input = SCurveInput {
             constraints,
@@ -891,10 +921,11 @@ mod tests {
             max_velocity: 3.,
         };
         let start_conditions = SCurveStartConditions {
-            q0: 0.,
-            q1: 10.,
-            v0: -1.,
-            v1: 0.,
+            _q0: 0.,
+            _q1: 10.,
+            _v0: -1.,
+            _v1: 0.,
+            dir: true
         };
         let input = SCurveInput {
             constraints,
@@ -913,10 +944,11 @@ mod tests {
             max_velocity: 3.,
         };
         let start_conditions = SCurveStartConditions {
-            q0: 10.,
-            q1: 0.,
-            v0: 1.,
-            v1: 0.,
+            _q0: 10.,
+            _q1: 0.,
+            _v0: 1.,
+            _v1: 0.,
+            dir: false
         };
         let input = SCurveInput {
             constraints,
@@ -935,10 +967,11 @@ mod tests {
             max_velocity: 3.,
         };
         let start_conditions = SCurveStartConditions {
-            q0: 0.,
-            q1: 10.,
-            v0: 0.,
-            v1: 0.,
+            _q0: 0.,
+            _q1: 10.,
+            _v0: 0.,
+            _v1: 0.,
+            dir: true
         };
         let input = SCurveInput {
             constraints,
@@ -956,10 +989,11 @@ mod tests {
             max_velocity: 3.,
         };
         let start_conditions = SCurveStartConditions {
-            q0: 0.,
-            q1: 10.,
-            v0: 0.,
-            v1: 1.,
+            _q0: 0.,
+            _q1: 10.,
+            _v0: 0.,
+            _v1: 1.,
+            dir: true
         };
         let input = SCurveInput {
             constraints,
@@ -977,10 +1011,11 @@ mod tests {
             max_velocity: 3.,
         };
         let start_conditions = SCurveStartConditions {
-            q0: 10.,
-            q1: 0.,
-            v0: 0.,
-            v1: -1.,
+            _q0: 10.,
+            _q1: 0.,
+            _v0: 0.,
+            _v1: -1.,
+            dir: false
         };
         let input = SCurveInput {
             constraints,
@@ -998,10 +1033,11 @@ mod tests {
             max_velocity: 3.,
         };
         let start_conditions = SCurveStartConditions {
-            q0: 10.,
-            q1: 0.,
-            v0: 0.,
-            v1: 1.,
+            _q0: 10.,
+            _q1: 0.,
+            _v0: 0.,
+            _v1: 1.,
+            dir: false
         };
         let input = SCurveInput {
             constraints,
@@ -1019,10 +1055,11 @@ mod tests {
             max_velocity: 3.,
         };
         let start_conditions = SCurveStartConditions {
-            q0: 0.,
-            q1: 10.,
-            v0: 0.,
-            v1: -1.,
+            _q0: 0.,
+            _q1: 10.,
+            _v0: 0.,
+            _v1: -1.,
+            dir: true
         };
         let input = SCurveInput {
             constraints,
@@ -1040,10 +1077,11 @@ mod tests {
             max_velocity: 3.,
         };
         let start_conditions = SCurveStartConditions {
-            q0: 0.,
-            q1: 10.,
-            v0: 1.,
-            v1: 0.,
+            _q0: 0.,
+            _q1: 10.,
+            _v0: 1.,
+            _v1: 0.,
+            dir: true
         };
         let input = SCurveInput {
             constraints,
@@ -1061,10 +1099,11 @@ mod tests {
             max_velocity: 3.,
         };
         let start_conditions = SCurveStartConditions {
-            q0: 0.,
-            q1: 10.,
-            v0: 1.,
-            v1: 0.,
+            _q0: 0.,
+            _q1: 10.,
+            _v0: 1.,
+            _v1: 0.,
+            dir: true
         };
         let input = SCurveInput {
             constraints,
@@ -1082,10 +1121,11 @@ mod tests {
             max_velocity: 3.,
         };
         let start_conditions = SCurveStartConditions {
-            q0: 10.,
-            q1: 0.,
-            v0: 0.,
-            v1: 0.,
+            _q0: 10.,
+            _q1: 0.,
+            _v0: 0.,
+            _v1: 0.,
+            dir: false
         };
         let input = SCurveInput {
             constraints,
@@ -1103,10 +1143,11 @@ mod tests {
             max_velocity: 3.,
         };
         let start_conditions = SCurveStartConditions {
-            q0: 10.,
-            q1: 0.,
-            v0: -1.,
-            v1: 0.,
+            _q0: 10.,
+            _q1: 0.,
+            _v0: -1.,
+            _v1: 0.,
+            dir: false
         };
         let input = SCurveInput {
             constraints,
@@ -1124,10 +1165,11 @@ mod tests {
             max_velocity: 3.,
         };
         let start_conditions = SCurveStartConditions {
-            q0: 10.,
-            q1: 0.,
-            v0: 1.,
-            v1: 0.,
+            _q0: 10.,
+            _q1: 0.,
+            _v0: 1.,
+            _v1: 0.,
+            dir: false
         };
         let input = SCurveInput {
             constraints,

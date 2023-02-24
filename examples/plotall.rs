@@ -4,17 +4,26 @@ use gnuplot::{AxesCommon, Caption, Figure};
 use s_curve::*;
 
 fn main() {
+    println!("AAA");
     let constraints = SCurveConstraints {
-        max_jerk: 3.,
-        max_acceleration: 2.0,
-        max_velocity: 3.,
+        max_jerk: 10.,
+        max_acceleration: 1.0,
+        max_velocity: 1.13,
     };
     let start_conditions = SCurveStartConditions {
-        q0: 0.,
-        q1: 10.,
-        v0: -1.,
-        v1: -1.,
+        _q0: 1.235,
+        _q1: 0.255,
+        _v0: 0.,
+        _v1: -0.5,
+        dir: false
     };
+    // let start_conditions = SCurveStartConditions {
+    //     _q0: 0.255,
+    //     _q1: 1.235,
+    //     _v0: 0.5,
+    //     _v1: -0.5,
+    //     dir: true
+    // };
     let input = SCurveInput {
         constraints,
         start_conditions,
@@ -67,7 +76,7 @@ fn main() {
         .set_y_label("Position derivatives m, m/s, m/s², m/s³", &[])
         .lines(xpos.clone(), ypos.clone(), &[Caption("Position")])
         .lines(xvel.clone(), yvel.clone(), &[Caption("Velocity")])
-        .lines(xacc.clone(), yacc.clone(), &[Caption("Acceleration")])
-        .lines(xjer.clone(), yjer.clone(), &[Caption("Jerk")]);
+        .lines(xacc.clone(), yacc.clone(), &[Caption("Acceleration")]);
+        //.lines(xjer.clone(), yjer.clone(), &[Caption("Jerk")]);
     fg.show().unwrap();
 }
